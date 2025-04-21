@@ -7,46 +7,29 @@ class DatabaseHelper {
   static final DatabaseHelper _instance = DatabaseHelper._internal();
   static Database? _database;
 
-  // Nombres de tablas
-  static const String tableBudgets = 'budgets';
-  static const String tableExpenses = 'expenses';
+  factory DatabaseHelper() => _instance;
 
-  // Versión de la base de datos
-  static const int _version = 1;
-
-  // Factory constructor
-  factory DatabaseHelper() {
-    return _instance;
-  }
-
-  // Constructor interno privado
   DatabaseHelper._internal();
 
-  // Obtener la instancia de la base de datos
   Future<Database> get database async {
     if (_database != null) return _database!;
-    
     _database = await _initDatabase();
     return _database!;
   }
 
-  // Inicializar la base de datos
   Future<Database> _initDatabase() async {
-    final String path = join(await getDatabasesPath(), 'ahorro_viajero.db');
-    
+    String path = join(await getDatabasesPath(), 'travel_budget.db');
     return await openDatabase(
       path,
-      version: _version,
-      onCreate: _createDatabase,
-      onUpgrade: _upgradeDatabase,
+      version: 2,
+      onCreate: _createDb,
+      onUpgrade: _onUpgrade,
     );
   }
 
-  // Crear tablas de la base de datos
-  Future<void> _createDatabase(Database db, int version) async {
-    // Crear tabla de presupuestos
+  Future<void> _createDb(Database db, int version) async {
     await db.execute('''
-      CREATE TABLE $tableBudgets (
+      CREATE TABLE budgets(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         title TEXT NOT NULL,
         totalAmount REAL NOT NULL,
@@ -58,174 +41,179 @@ class DatabaseHelper {
         notes TEXT
       )
     ''');
-    
-    // Crear tabla de gastos
+
     await db.execute('''
-      CREATE TABLE $tableExpenses (
+      CREATE TABLE expenses(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         budget_id INTEGER NOT NULL,
         description TEXT NOT NULL,
         amount REAL NOT NULL,
-        currency_code TEXT NOT NULL,
-        is_local_currency INTEGER NOT NULL,
-        conversion_rate REAL NOT NULL,
-        category TEXT NOT NULL,
         date TEXT NOT NULL,
+        category INTEGER NOT NULL,
         image_path TEXT,
         notes TEXT,
-        FOREIGN KEY (budget_id) REFERENCES $tableBudgets (id) ON DELETE CASCADE
+        is_local_currency INTEGER NOT NULL,
+        currency_code TEXT,
+        conversion_rate REAL
       )
     ''');
   }
 
-  // Actualizar la base de datos en futuras versiones
-  Future<void> _upgradeDatabase(Database db, int oldVersion, int newVersion) async {
-    // Código para migrar datos en futuras versiones
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.execute(
+        'ALTER TABLE expenses ADD COLUMN currency_code TEXT;'
+      );
+      await db.execute(
+        'ALTER TABLE expenses ADD COLUMN conversion_rate REAL;'
+      );
+    }
   }
 
-  // ---------------- Operaciones de Presupuestos ----------------
-
-  // Insertar un nuevo presupuesto
+  // Métodos para Budget
   Future<int> insertBudget(Budget budget) async {
-    final db = await database;
-    return await db.insert(tableBudgets, budget.toMap());
+    Database db = await database;
+    return await db.insert('budgets', budget.toMap());
   }
 
-  // Actualizar un presupuesto existente
   Future<int> updateBudget(Budget budget) async {
-    final db = await database;
+    Database db = await database;
     return await db.update(
-      tableBudgets,
+      'budgets',
       budget.toMap(),
       where: 'id = ?',
       whereArgs: [budget.id],
     );
   }
 
-  // Eliminar un presupuesto
   Future<int> deleteBudget(int id) async {
-    final db = await database;
-    
-    // Eliminar gastos asociados
-    await db.delete(
-      tableExpenses,
-      where: 'budget_id = ?',
-      whereArgs: [id],
-    );
-    
-    // Eliminar presupuesto
+    Database db = await database;
     return await db.delete(
-      tableBudgets,
+      'budgets',
       where: 'id = ?',
       whereArgs: [id],
     );
   }
 
-  // Obtener todos los presupuestos
-  Future<List<Budget>> getBudgets() async {
-    final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(tableBudgets);
-    
-    return List.generate(maps.length, (i) {
-      return Budget.fromMap(maps[i]);
-    });
-  }
-
-  // Obtener un presupuesto por ID
-  Future<Budget> getBudgetById(int id) async {
-    final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(
-      tableBudgets,
+  Future<Budget?> getBudget(int id) async {
+    Database db = await database;
+    var maps = await db.query(
+      'budgets',
       where: 'id = ?',
       whereArgs: [id],
     );
-    
+
     if (maps.isNotEmpty) {
       return Budget.fromMap(maps.first);
-    } else {
-      throw Exception('Presupuesto con ID $id no encontrado');
     }
+    return null;
   }
 
-  // ---------------- Operaciones de Gastos ----------------
+  Future<List<Budget>> getAllBudgets() async {
+    Database db = await database;
+    var maps = await db.query('budgets', orderBy: 'startDate DESC');
+    return List.generate(maps.length, (i) => Budget.fromMap(maps[i]));
+  }
 
-  // Insertar un nuevo gasto
+  // Métodos para Expense
   Future<int> insertExpense(Expense expense) async {
-    final db = await database;
-    return await db.insert(tableExpenses, expense.toMap());
+    Database db = await database;
+    return await db.insert('expenses', expense.toMap());
   }
 
-  // Actualizar un gasto existente
-  Future<int> updateExpense(Expense expense) async {
-    final db = await database;
-    return await db.update(
-      tableExpenses,
+  Future<void> updateExpense(Expense expense) async {
+    Database db = await database;
+    await db.update(
+      'expenses',
       expense.toMap(),
       where: 'id = ?',
       whereArgs: [expense.id],
     );
   }
 
-  // Eliminar un gasto
-  Future<int> deleteExpense(int id) async {
-    final db = await database;
-    return await db.delete(
-      tableExpenses,
+  Future<void> deleteExpense(int id) async {
+    Database db = await database;
+    await db.delete(
+      'expenses',
       where: 'id = ?',
       whereArgs: [id],
     );
   }
 
-  // Obtener todos los gastos de un presupuesto
-  Future<List<Expense>> getExpensesForBudget(int budgetId) async {
+  Future<Expense?> getExpense(int id) async {
+    Database db = await database;
+    var maps = await db.query(
+      'expenses',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+
+    if (maps.isEmpty) return null;
+    return Expense.fromMap(maps.first);
+  }
+
+  Future<List<Expense>> getAllExpenses([int? budgetId]) async {
     final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(
-      tableExpenses,
+    final List<Map<String, dynamic>> maps = budgetId != null
+        ? await db.query('expenses', where: 'budget_id = ?', whereArgs: [budgetId])
+        : await db.query('expenses');
+
+    return List.generate(maps.length, (i) => Expense.fromMap(maps[i]));
+  }
+
+  Future<List<Expense>> getExpensesByCategory(int budgetId, ExpenseCategory category) async {
+    Database db = await database;
+    var maps = await db.query(
+      'expenses',
+      where: 'budget_id = ? AND category = ?',
+      whereArgs: [budgetId, category.toString()],
+      orderBy: 'date DESC',
+    );
+    return List.generate(maps.length, (i) => Expense.fromMap(maps[i]));
+  }
+
+  Future<Map<ExpenseCategory, double>> getExpenseSummaryByCategory(int budgetId) async {
+    Database db = await database;
+    
+    // Obtener todos los gastos del presupuesto
+    var maps = await db.query(
+      'expenses',
       where: 'budget_id = ?',
       whereArgs: [budgetId],
     );
     
-    return List.generate(maps.length, (i) {
-      return Expense.fromMap(maps[i]);
-    });
+    // Convertir los mapas a objetos Expense
+    final expenses = List.generate(maps.length, (i) => Expense.fromMap(maps[i]));
+    
+    // Agrupar por categoría y sumar los montos en la moneda base
+    Map<ExpenseCategory, double> summary = {};
+    for (var expense in expenses) {
+      final category = expense.category;
+      summary[category] = (summary[category] ?? 0.0) + expense.amountInBaseCurrency;
+    }
+    
+    return summary;
   }
 
-  // Obtener un gasto por ID
-  Future<Expense> getExpenseById(int id) async {
+  Future<double> getTotalExpenses(int budgetId) async {
     final db = await database;
+    
+    // Obtener todos los gastos del presupuesto
     final List<Map<String, dynamic>> maps = await db.query(
-      tableExpenses,
-      where: 'id = ?',
-      whereArgs: [id],
+      'expenses',
+      where: 'budget_id = ?',
+      whereArgs: [budgetId],
     );
     
-    if (maps.isNotEmpty) {
-      return Expense.fromMap(maps.first);
-    } else {
-      throw Exception('Gasto con ID $id no encontrado');
-    }
-  }
-
-  // Obtener el total de gastos para un presupuesto
-  Future<double> getTotalExpensesForBudget(int budgetId, {bool inBaseCurrency = true}) async {
-    final db = await database;
+    // Convertir los mapas a objetos Expense
+    final expenses = List.generate(maps.length, (i) => Expense.fromMap(maps[i]));
     
-    // Esta consulta requiere cálculos basados en el campo is_local_currency
-    // Por lo que es mejor cargar todos los gastos y calcular el total en Dart
-    final expenses = await getExpensesForBudget(budgetId);
-    
-    if (inBaseCurrency) {
-      // Total en moneda de origen
-      return expenses.fold(0, (sum, expense) => sum + expense.amountInBaseCurrency);
-    } else {
-      // Total en moneda local
-      return expenses.fold(0, (sum, expense) => sum + expense.amountInLocalCurrency);
+    // Sumar los montos en la moneda base (origen)
+    double total = 0.0;
+    for (var expense in expenses) {
+      total += expense.amountInBaseCurrency;
     }
-  }
-
-  // Cerrar la base de datos
-  Future<void> close() async {
-    final db = await database;
-    db.close();
+    
+    return total;
   }
 }
