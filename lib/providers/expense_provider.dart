@@ -1,185 +1,174 @@
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import '../models/expense.dart';
-import '../providers/budget_provider.dart';
 import '../db/database_helper.dart';
+import 'package:provider/provider.dart';
+import 'budget_provider.dart';
+import 'package:sqflite/sqflite.dart';
 
 class ExpenseProvider with ChangeNotifier {
   List<Expense> _expenses = [];
-  Map<int, List<Expense>> _expensesByBudget = {};
   final DatabaseHelper _databaseHelper = DatabaseHelper();
-  late BudgetProvider _budgetProvider;
-  bool _isLoading = false;
-  String _errorMessage = '';
+  int? _currentBudgetId;
+  BudgetProvider? _budgetProvider;
 
-  // Getters
-  List<Expense> get expenses => _expenses;
-  bool get isLoading => _isLoading;
-  String get errorMessage => _errorMessage;
-
-  // Constructor
-  ExpenseProvider();
-
-  // Establecer la referencia al BudgetProvider
-  void setBudgetProvider(BudgetProvider budgetProvider) {
-    _budgetProvider = budgetProvider;
+  ExpenseProvider() {
+    // No cargar gastos automáticamente, esperar a que se seleccione un presupuesto
+    // evitamos refreshExpenses() aquí
   }
 
-  // Cargar gastos para un presupuesto específico
-  Future<List<Expense>> getExpensesForBudget(int budgetId) async {
-    _setLoading(true);
-    
+  List<Expense> get expenses => _expenses;
+  int? get currentBudgetId => _currentBudgetId;
+
+  // Método para inicializar el budgetProvider
+  void setBudgetProvider(BudgetProvider provider) {
+    _budgetProvider = provider;
+  }
+
+  Future<void> loadExpenses(int budgetId) async {
+    _currentBudgetId = budgetId;
+    _expenses = await _databaseHelper.getAllExpenses(budgetId);
+    notifyListeners();
+  }
+
+  Future<void> addExpense(Expense expense) async {
     try {
-      // Si ya están cargados, devolver desde la memoria
-      if (_expensesByBudget.containsKey(budgetId)) {
-        return _expensesByBudget[budgetId]!;
+      final id = await _databaseHelper.insertExpense(expense);
+      
+      final newExpense = expense.copyWith(id: id);
+      _expenses.add(newExpense);
+      notifyListeners();
+      
+      // Actualizar el presupuesto relacionado
+      if (_budgetProvider != null) {
+        await _budgetProvider!.updateBudgetSpentAmount(expense.budgetId);
       }
-      
-      // Sino, cargar desde la base de datos
-      final expenses = await _databaseHelper.getExpensesForBudget(budgetId);
-      
-      // Ordenar por fecha (más reciente primero)
-      expenses.sort((a, b) => b.date.compareTo(a.date));
-      
-      // Actualizar la caché en memoria
-      _expensesByBudget[budgetId] = expenses;
-      
-      _setError('');
-      return expenses;
     } catch (e) {
-      _setError('Error al cargar los gastos: ${e.toString()}');
-      debugPrint('Error en getExpensesForBudget: ${e.toString()}');
-      return [];
-    } finally {
-      _setLoading(false);
+      throw Exception('Error al añadir gasto: $e');
     }
   }
 
-  // Buscar un gasto por ID
-  Future<Expense?> getExpenseById(int id) async {
+  Future<void> updateExpense(Expense expense) async {
     try {
-      // Buscar en la lista cacheada
-      for (var budgetExpenses in _expensesByBudget.values) {
+      if (expense.id == null) {
+        throw Exception("No se puede actualizar un gasto sin ID");
+      }
+      
+      await _databaseHelper.updateExpense(expense);
+      
+      final index = _expenses.indexWhere((e) => e.id == expense.id);
+      if (index >= 0) {
+        _expenses[index] = expense;
+        notifyListeners();
+      }
+      
+      // Actualizar el presupuesto relacionado
+      if (_budgetProvider != null) {
+        await _budgetProvider!.updateBudgetSpentAmount(expense.budgetId);
+      }
+    } catch (e) {
+      throw Exception('Error al actualizar gasto: $e');
+    }
+  }
+
+  Future<void> deleteExpense(int expenseId) async {
+    try {
+      final expense = await getExpense(expenseId);
+      
+      // Si el gasto tiene una imagen, eliminar el archivo
+      if (expense != null && expense.imagePath != null && expense.imagePath!.isNotEmpty) {
         try {
-          return budgetExpenses.firstWhere((expense) => expense.id == id);
+          final file = File(expense.imagePath!);
+          if (await file.exists()) {
+            await file.delete();
+          }
         } catch (e) {
-          // Continuar con el siguiente conjunto de gastos
+          // Error al eliminar el archivo, continuamos con la eliminación del gasto
         }
       }
       
-      // Si no se encuentra en la caché, buscar en la base de datos
-      return await _databaseHelper.getExpenseById(id);
+      await _databaseHelper.deleteExpense(expenseId);
+      _expenses.removeWhere((expense) => expense.id == expenseId);
+      notifyListeners();
     } catch (e) {
-      debugPrint('Error al buscar gasto con ID $id: ${e.toString()}');
+      // Error silenciado
+    }
+  }
+
+  Future<Expense?> getExpense(int expenseId) async {
+    try {
+      return await _databaseHelper.getExpense(expenseId);
+    } catch (e) {
+      // Error silenciado
       return null;
     }
   }
 
-  // Añadir un nuevo gasto
-  Future<bool> addExpense(Expense expense) async {
-    _setLoading(true);
+  Future<List<Expense>> getExpensesByCategory(ExpenseCategory category) async {
+    if (_currentBudgetId == null) return [];
+    return await _databaseHelper.getExpensesByCategory(_currentBudgetId!, category);
+  }
+
+  Future<Map<ExpenseCategory, double>> getExpenseSummaryByCategory([int? budgetId]) async {
+    final targetBudgetId = budgetId ?? _currentBudgetId;
     
-    try {
-      // Guardar en la base de datos
-      final id = await _databaseHelper.insertExpense(expense);
-      
-      // Crear una copia con el ID asignado
-      final newExpense = expense.copyWith(id: id);
-      
-      // Actualizar la caché en memoria
-      if (_expensesByBudget.containsKey(expense.budgetId)) {
-        _expensesByBudget[expense.budgetId]!.add(newExpense);
-        // Ordenar por fecha (más reciente primero)
-        _expensesByBudget[expense.budgetId]!.sort((a, b) => b.date.compareTo(a.date));
-      } else {
-        _expensesByBudget[expense.budgetId] = [newExpense];
-      }
-      
-      _setError('');
-      notifyListeners();
-      return true;
-    } catch (e) {
-      _setError('Error al guardar el gasto: ${e.toString()}');
-      debugPrint('Error en addExpense: ${e.toString()}');
-      return false;
-    } finally {
-      _setLoading(false);
-    }
-  }
-
-  // Actualizar un gasto existente
-  Future<bool> updateExpense(Expense expense) async {
-    _setLoading(true);
+    // Si no hay presupuesto específico, devolver un mapa vacío
+    if (targetBudgetId == null) return {};
     
-    try {
-      // Actualizar en la base de datos
-      await _databaseHelper.updateExpense(expense);
-      
-      // Actualizar en la caché en memoria
-      if (_expensesByBudget.containsKey(expense.budgetId)) {
-        final index = _expensesByBudget[expense.budgetId]!.indexWhere((e) => e.id == expense.id);
-        if (index != -1) {
-          _expensesByBudget[expense.budgetId]![index] = expense;
-        }
-        // Ordenar por fecha (más reciente primero)
-        _expensesByBudget[expense.budgetId]!.sort((a, b) => b.date.compareTo(a.date));
-      }
-      
-      _setError('');
-      notifyListeners();
-      return true;
-    } catch (e) {
-      _setError('Error al actualizar el gasto: ${e.toString()}');
-      debugPrint('Error en updateExpense: ${e.toString()}');
-      return false;
-    } finally {
-      _setLoading(false);
-    }
-  }
-
-  // Eliminar un gasto
-  Future<bool> deleteExpense(int id, int budgetId) async {
-    _setLoading(true);
+    // Obtener los gastos específicamente para este presupuesto
+    final expenses = await _databaseHelper.getAllExpenses(targetBudgetId);
     
+    final summary = <ExpenseCategory, double>{};
+    for (var expense in expenses) {
+      // Usar el valor convertido a moneda base
+      summary[expense.category] = (summary[expense.category] ?? 0) + expense.amountInBaseCurrency;
+    }
+    
+    return summary;
+  }
+
+  Future<Map<String, double>> getExpenseSummaryCategorized([int? budgetId]) async {
+    final targetBudgetId = budgetId ?? _currentBudgetId;
+    
+    // Si no hay presupuesto especificado, devolver un mapa vacío
+    if (targetBudgetId == null) return {};
+    
+    // Obtener los gastos específicamente para este presupuesto
+    final expenses = await _databaseHelper.getAllExpenses(targetBudgetId);
+    
+    final summary = <String, double>{};
+    for (var expense in expenses) {
+      final categoryName = expense.category.displayName;
+      summary[categoryName] = (summary[categoryName] ?? 0) + expense.amountInBaseCurrency;
+    }
+    
+    return summary;
+  }
+
+  Future<double> getTotalExpenses([int? budgetId]) async {
+    final targetBudgetId = budgetId ?? _currentBudgetId;
+    if (targetBudgetId == null) return 0.0;
+    return await _databaseHelper.getTotalExpenses(targetBudgetId);
+  }
+
+  Future<void> refreshExpenses() async {
     try {
-      // Eliminar de la base de datos
-      await _databaseHelper.deleteExpense(id);
+      if (_currentBudgetId == null) return;
       
-      // Eliminar de la caché en memoria
-      if (_expensesByBudget.containsKey(budgetId)) {
-        _expensesByBudget[budgetId]!.removeWhere((expense) => expense.id == id);
-      }
-      
-      _setError('');
-      notifyListeners();
-      return true;
+      loadExpenses(_currentBudgetId!);
     } catch (e) {
-      _setError('Error al eliminar el gasto: ${e.toString()}');
-      debugPrint('Error en deleteExpense: ${e.toString()}');
-      return false;
-    } finally {
-      _setLoading(false);
+      // Error silenciado
     }
   }
 
-  // Calcular el total gastado en un presupuesto (en moneda de origen)
-  Future<double> getTotalSpentForBudget(int budgetId) async {
-    try {
-      final expenses = await getExpensesForBudget(budgetId);
-      return expenses.fold(0, (sum, expense) => sum + expense.amountInBaseCurrency);
-    } catch (e) {
-      debugPrint('Error al calcular el total gastado: ${e.toString()}');
-      return 0;
-    }
-  }
-
-  // Métodos auxiliares para gestionar estados
-  void _setLoading(bool loading) {
-    _isLoading = loading;
+  void clearExpenses() {
+    _expenses = [];
+    _currentBudgetId = null;
     notifyListeners();
   }
 
-  void _setError(String error) {
-    _errorMessage = error;
-    notifyListeners();
+  Future<List<Expense>> getExpensesForBudget(int budgetId) async {
+    // Obtener directamente de la base de datos en lugar de filtrar en memoria
+    return await _databaseHelper.getAllExpenses(budgetId);
   }
 }
