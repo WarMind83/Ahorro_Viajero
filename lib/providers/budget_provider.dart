@@ -4,148 +4,109 @@ import '../db/database_helper.dart';
 
 class BudgetProvider with ChangeNotifier {
   List<Budget> _budgets = [];
+  Budget? _currentBudget;
   final DatabaseHelper _databaseHelper = DatabaseHelper();
-  bool _isLoading = false;
-  String _errorMessage = '';
 
-  // Getters
-  List<Budget> get budgets => _budgets;
-  bool get isLoading => _isLoading;
-  String get errorMessage => _errorMessage;
-
-  // Constructor
   BudgetProvider() {
-    refreshBudgets();
+    _loadBudgets();
   }
 
-  // Cargar todos los presupuestos
+  List<Budget> get budgets => _budgets;
+  Budget? get currentBudget => _currentBudget;
+
+  Future<void> _loadBudgets() async {
+    _budgets = await _databaseHelper.getAllBudgets();
+    notifyListeners();
+  }
+
+  Future<void> addBudget(Budget budget) async {
+    final id = await _databaseHelper.insertBudget(budget);
+    final newBudget = budget.copyWith(id: id);
+    _budgets.add(newBudget);
+    notifyListeners();
+  }
+
+  Future<void> updateBudget(Budget budget) async {
+    await _databaseHelper.updateBudget(budget);
+    final index = _budgets.indexWhere((b) => b.id == budget.id);
+    if (index != -1) {
+      _budgets[index] = budget;
+      if (_currentBudget?.id == budget.id) {
+        _currentBudget = budget;
+      }
+      notifyListeners();
+    }
+  }
+
+  Future<void> deleteBudget(int budgetId) async {
+    await _databaseHelper.deleteBudget(budgetId);
+    _budgets.removeWhere((budget) => budget.id == budgetId);
+    if (_currentBudget?.id == budgetId) {
+      _currentBudget = null;
+    }
+    notifyListeners();
+  }
+
+  Future<void> setCurrentBudget(int budgetId) async {
+    _currentBudget = await _databaseHelper.getBudget(budgetId);
+    notifyListeners();
+  }
+
+  void clearCurrentBudget() {
+    _currentBudget = null;
+    notifyListeners();
+  }
+
+  Future<Budget?> getBudgetById(int budgetId) async {
+    return await _databaseHelper.getBudget(budgetId);
+  }
+
   Future<void> refreshBudgets() async {
-    _setLoading(true);
-    
-    try {
-      // Cargar desde la base de datos
-      final budgets = await _databaseHelper.getBudgets();
-      
-      // Ordenar por fecha de inicio (más reciente primero)
-      budgets.sort((a, b) => b.startDate.compareTo(a.startDate));
-      
-      _budgets = budgets;
-      _setError('');
-    } catch (e) {
-      _setError('Error al cargar los presupuestos: ${e.toString()}');
-      debugPrint('Error en refreshBudgets: ${e.toString()}');
-    } finally {
-      _setLoading(false);
-    }
+    await _loadBudgets();
   }
 
-  // Buscar un presupuesto por ID
-  Future<Budget?> getBudgetById(int id) async {
-    try {
-      // Primero buscar en la lista en memoria
-      final inMemoryBudget = _budgets.firstWhere((budget) => budget.id == id);
-      return inMemoryBudget;
-    } catch (e) {
-      // Si no se encuentra, buscar en la base de datos
-      try {
-        final budget = await _databaseHelper.getBudgetById(id);
-        return budget;
-      } catch (dbError) {
-        debugPrint('Error al cargar presupuesto con ID $id: ${dbError.toString()}');
-        return null;
-      }
-    }
+  Future<void> updateBudgetAmount(int id, double newAmount) async {
+    final budget = _budgets.firstWhere((b) => b.id == id);
+    final updatedBudget = Budget(
+      id: budget.id,
+      title: budget.title,
+      totalAmount: newAmount,
+      originCurrencyCode: budget.originCurrencyCode,
+      destinationCurrencyCode: budget.destinationCurrencyCode,
+      exchangeRate: budget.exchangeRate,
+      startDate: budget.startDate,
+      endDate: budget.endDate,
+      notes: budget.notes,
+    );
+    await updateBudget(updatedBudget);
   }
 
-  // Añadir un nuevo presupuesto
-  Future<bool> addBudget(Budget budget) async {
-    _setLoading(true);
-    
+  Future<void> updateBudgetAmountAndExchangeRate(int id, double newAmount, double newExchangeRate) async {
+    final budget = _budgets.firstWhere((b) => b.id == id);
+    final updatedBudget = Budget(
+      id: budget.id,
+      title: budget.title,
+      totalAmount: newAmount,
+      originCurrencyCode: budget.originCurrencyCode,
+      destinationCurrencyCode: budget.destinationCurrencyCode,
+      exchangeRate: newExchangeRate,
+      startDate: budget.startDate,
+      endDate: budget.endDate,
+      notes: budget.notes,
+    );
+    await updateBudget(updatedBudget);
+  }
+  
+  // Método para actualizar la cantidad gastada en un presupuesto
+  Future<void> updateBudgetSpentAmount(int budgetId) async {
     try {
-      // Guardar en la base de datos
-      final id = await _databaseHelper.insertBudget(budget);
+      // Obtener el total gastado para este presupuesto
+      final totalSpent = await _databaseHelper.getTotalExpenses(budgetId);
       
-      // Crear una copia con el ID asignado
-      final newBudget = budget.copyWith(id: id);
-      
-      // Añadir a la lista en memoria
-      _budgets.add(newBudget);
-      
-      // Ordenar por fecha de inicio (más reciente primero)
-      _budgets.sort((a, b) => b.startDate.compareTo(a.startDate));
-      
-      _setError('');
+      // Actualizar el presupuesto si es necesario
       notifyListeners();
-      return true;
     } catch (e) {
-      _setError('Error al guardar el presupuesto: ${e.toString()}');
-      debugPrint('Error en addBudget: ${e.toString()}');
-      return false;
-    } finally {
-      _setLoading(false);
+      // Error silenciado
     }
-  }
-
-  // Actualizar un presupuesto existente
-  Future<bool> updateBudget(Budget budget) async {
-    _setLoading(true);
-    
-    try {
-      // Actualizar en la base de datos
-      await _databaseHelper.updateBudget(budget);
-      
-      // Actualizar en la lista en memoria
-      final index = _budgets.indexWhere((b) => b.id == budget.id);
-      if (index != -1) {
-        _budgets[index] = budget;
-      }
-      
-      // Ordenar por fecha de inicio (más reciente primero)
-      _budgets.sort((a, b) => b.startDate.compareTo(a.startDate));
-      
-      _setError('');
-      notifyListeners();
-      return true;
-    } catch (e) {
-      _setError('Error al actualizar el presupuesto: ${e.toString()}');
-      debugPrint('Error en updateBudget: ${e.toString()}');
-      return false;
-    } finally {
-      _setLoading(false);
-    }
-  }
-
-  // Eliminar un presupuesto
-  Future<bool> deleteBudget(int id) async {
-    _setLoading(true);
-    
-    try {
-      // Eliminar de la base de datos
-      await _databaseHelper.deleteBudget(id);
-      
-      // Eliminar de la lista en memoria
-      _budgets.removeWhere((budget) => budget.id == id);
-      
-      _setError('');
-      notifyListeners();
-      return true;
-    } catch (e) {
-      _setError('Error al eliminar el presupuesto: ${e.toString()}');
-      debugPrint('Error en deleteBudget: ${e.toString()}');
-      return false;
-    } finally {
-      _setLoading(false);
-    }
-  }
-
-  // Métodos auxiliares para gestionar estados
-  void _setLoading(bool loading) {
-    _isLoading = loading;
-    notifyListeners();
-  }
-
-  void _setError(String error) {
-    _errorMessage = error;
-    notifyListeners();
   }
 }
