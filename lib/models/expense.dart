@@ -1,20 +1,63 @@
-import 'package:intl/intl.dart';
+import 'package:flutter/material.dart';
 
 enum ExpenseCategory {
-  transport,
-  accommodation,
-  food,
-  breakfast,
-  lunch,
-  dinner,
-  snacks,
-  tickets,
-  nightlife,
-  activities,
-  shopping,
-  health,
-  gifts,
-  other
+  transportation('Transporte'),
+  accommodation('Alojamiento'),
+  food('Alimentación general'),
+  breakfast('Desayuno'),
+  lunch('Comida'),
+  dinner('Cena'),
+  snacks('Snacks'),
+  tickets('Entradas'),
+  nightlife('Vida nocturna'),
+  activities('Actividades'),
+  shopping('Compras'),
+  health('Salud'),
+  gifts('Regalos'),
+  other('Otros');
+
+  final String displayName;
+  const ExpenseCategory(this.displayName);
+
+  IconData get icon {
+    switch (this) {
+      case ExpenseCategory.accommodation:
+        return Icons.hotel;
+      case ExpenseCategory.food:
+        return Icons.restaurant;
+      case ExpenseCategory.breakfast:
+        return Icons.free_breakfast;
+      case ExpenseCategory.lunch:
+        return Icons.lunch_dining;
+      case ExpenseCategory.dinner:
+        return Icons.dinner_dining;
+      case ExpenseCategory.snacks:
+        return Icons.cookie;
+      case ExpenseCategory.tickets:
+        return Icons.confirmation_number;
+      case ExpenseCategory.nightlife:
+        return Icons.nightlife;
+      case ExpenseCategory.transportation:
+        return Icons.directions_car;
+      case ExpenseCategory.activities:
+        return Icons.attractions;
+      case ExpenseCategory.shopping:
+        return Icons.shopping_bag;
+      case ExpenseCategory.health:
+        return Icons.medical_services;
+      case ExpenseCategory.gifts:
+        return Icons.card_giftcard;
+      case ExpenseCategory.other:
+        return Icons.more_horiz;
+    }
+  }
+
+  static ExpenseCategory fromString(String value) {
+    return ExpenseCategory.values.firstWhere(
+      (category) => category.toString() == value,
+      orElse: () => ExpenseCategory.other,
+    );
+  }
 }
 
 class Expense {
@@ -44,7 +87,56 @@ class Expense {
     this.notes,
   });
 
-  // Constructor de copia
+  factory Expense.fromMap(Map<String, dynamic> map) {
+    return Expense(
+      id: map['id'],
+      budgetId: map['budget_id'],
+      description: map['description'],
+      amount: map['amount'],
+      currencyCode: map['currency_code'] ?? '',
+      isLocalCurrency: map['is_local_currency'] == 1,
+      conversionRate: map['conversion_rate'] ?? 1.0,
+      category: ExpenseCategory.fromString(map['category']),
+      date: DateTime.parse(map['date']),
+      imagePath: map['image_path'],
+      notes: map['notes'],
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'budget_id': budgetId,
+      'description': description,
+      'amount': amount,
+      'date': date.toIso8601String(),
+      'category': category.toString(),
+      'image_path': imagePath,
+      'notes': notes,
+      'is_local_currency': isLocalCurrency ? 1 : 0,
+      'currency_code': currencyCode,
+      'conversion_rate': conversionRate,
+    };
+  }
+
+  // Calcular el valor en la moneda base (origen)
+  double get amountInBaseCurrency {
+    if (isLocalCurrency) {
+      return amount / conversionRate;
+    } else {
+      return amount;
+    }
+  }
+
+  // Calcular el valor en la moneda local (destino)
+  double get amountInLocalCurrency {
+    if (isLocalCurrency) {
+      return amount;
+    } else {
+      return amount * conversionRate;
+    }
+  }
+
   Expense copyWith({
     int? id,
     int? budgetId,
@@ -71,123 +163,5 @@ class Expense {
       imagePath: imagePath ?? this.imagePath,
       notes: notes ?? this.notes,
     );
-  }
-
-  // Crear un Expense desde un Map (para trabajar con la base de datos)
-  factory Expense.fromMap(Map<String, dynamic> map) {
-    return Expense(
-      id: map['id'],
-      budgetId: map['budgetId'],
-      description: map['description'],
-      amount: map['amount'],
-      currencyCode: map['currencyCode'],
-      isLocalCurrency: map['isLocalCurrency'] == 1,
-      conversionRate: map['conversionRate'],
-      category: ExpenseCategory.values[map['category']],
-      date: DateTime.parse(map['date']),
-      imagePath: map['imagePath'],
-      notes: map['notes'],
-    );
-  }
-
-  // Convertir Expense a Map (para guardar en la base de datos)
-  Map<String, dynamic> toMap() {
-    return {
-      'id': id,
-      'budgetId': budgetId,
-      'description': description,
-      'amount': amount,
-      'currencyCode': currencyCode,
-      'isLocalCurrency': isLocalCurrency ? 1 : 0,
-      'conversionRate': conversionRate,
-      'category': category.index,
-      'date': date.toIso8601String(),
-      'imagePath': imagePath,
-      'notes': notes,
-    };
-  }
-
-  // Obtener el monto convertido
-  double get convertedAmount {
-    if (isLocalCurrency) {
-      // Si es moneda local, convertir a moneda de origen
-      return amount / conversionRate;
-    } else {
-      // Si es moneda de origen, convertir a moneda local
-      return amount * conversionRate;
-    }
-  }
-
-  // Formato para mostrar la fecha
-  String get formattedDate {
-    return DateFormat('dd/MM/yyyy').format(date);
-  }
-
-  // Obtener el nombre de la categoría en español
-  String get categoryName {
-    switch (category) {
-      case ExpenseCategory.transport:
-        return 'Transporte';
-      case ExpenseCategory.accommodation:
-        return 'Alojamiento';
-      case ExpenseCategory.food:
-        return 'Alimentación';
-      case ExpenseCategory.breakfast:
-        return 'Desayuno';
-      case ExpenseCategory.lunch:
-        return 'Comida';
-      case ExpenseCategory.dinner:
-        return 'Cena';
-      case ExpenseCategory.snacks:
-        return 'Snacks';
-      case ExpenseCategory.tickets:
-        return 'Entradas';
-      case ExpenseCategory.nightlife:
-        return 'Vida nocturna';
-      case ExpenseCategory.activities:
-        return 'Actividades';
-      case ExpenseCategory.shopping:
-        return 'Compras';
-      case ExpenseCategory.health:
-        return 'Salud';
-      case ExpenseCategory.gifts:
-        return 'Regalos';
-      case ExpenseCategory.other:
-        return 'Otros';
-    }
-  }
-
-  // Obtener el icono asociado a la categoría
-  static IconData getCategoryIcon(ExpenseCategory category) {
-    switch (category) {
-      case ExpenseCategory.transport:
-        return Icons.directions_car;
-      case ExpenseCategory.accommodation:
-        return Icons.hotel;
-      case ExpenseCategory.food:
-        return Icons.restaurant;
-      case ExpenseCategory.breakfast:
-        return Icons.free_breakfast;
-      case ExpenseCategory.lunch:
-        return Icons.lunch_dining;
-      case ExpenseCategory.dinner:
-        return Icons.dinner_dining;
-      case ExpenseCategory.snacks:
-        return Icons.fastfood;
-      case ExpenseCategory.tickets:
-        return Icons.confirmation_number;
-      case ExpenseCategory.nightlife:
-        return Icons.nightlife;
-      case ExpenseCategory.activities:
-        return Icons.attractions;
-      case ExpenseCategory.shopping:
-        return Icons.shopping_bag;
-      case ExpenseCategory.health:
-        return Icons.medical_services;
-      case ExpenseCategory.gifts:
-        return Icons.card_giftcard;
-      case ExpenseCategory.other:
-        return Icons.more_horiz;
-    }
   }
 }
