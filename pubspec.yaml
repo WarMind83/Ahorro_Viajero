@@ -1,0 +1,56 @@
+name: gestor_de_viajes
+description: "Aplicación móvil para gestionar presupuestos de viaje y gastos en diferentes monedas."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.2.3 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.2
+  
+  # Gestión de estado
+  provider: ^6.1.1
+  
+  # Base de datos local
+  sqflite: ^2.3.0
+  path: ^1.8.3
+  shared_preferences: ^2.2.3
+  
+  # UI
+  fl_chart: ^0.66.0
+  intl: ^0.19.0
+  image_picker: ^1.0.4
+  flutter_localizations:
+    sdk: flutter
+  path_provider: ^2.1.1
+  flutter_markdown: ^0.6.18
+  url_launcher: ^6.2.5
+  
+  # Monetización
+  google_mobile_ads: ^4.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.0
+  flutter_launcher_icons: ^0.13.1
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/
+    - assets/privacy_policy.md
+    - assets/terms_conditions.md
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/app_icon.png"
+  adaptive_icon_background: "#3498db"
+  adaptive_icon_foreground: "assets/images/app_icon.png"
